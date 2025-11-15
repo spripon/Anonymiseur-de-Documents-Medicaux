@@ -1,305 +1,511 @@
-import os
-import re
 import streamlit as st
-import tempfile
+import re
 from io import BytesIO
-from datetime import datetime
-
-# Bibliothèques pour le traitement des fichiers
-import PyPDF2
-import pdfplumber
+import fitz  # PyMuPDF
 from docx import Document
-from docx.shared import Inches
-from reportlab.pdfgen import canvas
-from reportlab.lib.pagesizes import letter
-from reportlab.lib.utils import simpleSplit
+from docx.shared import RGBColor
+import pandas as pd
+from datetime import datetime
+from PIL import Image, ImageDraw, ImageFont
+import pytesseract
+import numpy as np
+import cv2
 
-# Pour le traitement NLP (optionnel, pour une meilleure détection des noms)
-try:
-    import spacy
-    NLP_AVAILABLE = True
-    # Charger le modèle français (à installer séparément avec: python -m spacy download fr_core_news_sm)
-    try:
-        nlp = spacy.load("fr_core_news_sm")
-    except OSError:
-        st.warning("Le modèle NLP français n'est pas installé. Utilisation des expressions régulières uniquement.")
-        NLP_AVAILABLE = False
-except ImportError:
-    NLP_AVAILABLE = False
-    st.warning("La bibliothèque spaCy n'est pas installée. Utilisation des expressions régulières uniquement.")
+# Configuration de la page
 
-# Configuration de la page Streamlit
 st.set_page_config(
-    page_title="Anonymisation de Documents Médicaux",
-    page_icon="🏥",
-    layout="wide"
+page_title=“Anonymiseur de Documents Médicaux”,
+page_icon=“🏥”,
+layout=“wide”
 )
 
-# Fonctions pour le traitement des fichiers
-def extract_text_from_pdf(file):
-    """Extrait le texte d'un fichier PDF."""
-    text = ""
+# Titre de l’application
+
+st.title(“🏥 Anonymiseur de Documents Médicaux”)
+st.markdown(”—”)
+
+# Définition des patterns de détection
+
+PATTERNS = {
+‘dates’: r’\b\d{1,2}[/-]\d{1,2}[/-]\d{2,4}\b’,
+‘numeros_longs’: r’\b\d{6,}\b’,
+‘noms_propres’: r’\b[A-ZÉÈÊËÀÂÄÔÖÛÜÇ][a-zéèêëàâäôöûüç]+(?:\s+[A-ZÉÈÊËÀÂÄÔÖÛÜÇ][a-zéèêëàâäôöûüç]+)*\b’,
+‘email’: r’\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+.[A-Z|a-z]{2,}\b’,
+‘telephone’: r’\b(?:+33|0)[1-9](?:[\s.-]?\d{2}){4}\b’,
+‘numero_secu’: r’\b[12]\s?\d{2}\s?\d{2}\s?\d{2}\s?\d{3}\s?\d{3}\s?\d{2}\b’
+}
+
+# Labels personnalisables
+
+LABELS_COMMUNS = [
+“Nom”, “Prénom”, “N° patient”, “Numéro patient”, “Patient”,
+“Âge”, “Age”, “Date de naissance”, “Né(e) le”,
+“Établissement”, “Etablissement”, “Hôpital”, “Clinique”,
+“Date étude”, “Date d’étude”, “Date examen”,
+“Effectué par”, “Réalisé par”, “Médecin”, “Docteur”, “Dr”,
+“Adresse”, “Téléphone”, “Tel”, “Email”, “N°SS”, “Sécurité sociale”
+]
+
+def anonymize_text(text, labels_to_remove):
+“”“Anonymise le texte en fonction des patterns et labels”””
+anonymized = text
+replacements = []
+
+```
+# Anonymiser les dates
+for match in re.finditer(PATTERNS['dates'], text):
+    original = match.group()
+    anonymized = anonymized.replace(original, "[DATE ANONYMISÉE]")
+    replacements.append(("Date", original, "[DATE ANONYMISÉE]"))
+
+# Anonymiser les numéros longs
+for match in re.finditer(PATTERNS['numeros_longs'], text):
+    original = match.group()
+    # Éviter de remplacer les numéros qui font partie d'une date
+    if not re.search(r'\d{1,2}[/-]' + re.escape(original), text):
+        anonymized = anonymized.replace(original, "[NUMÉRO ANONYMISÉ]")
+        replacements.append(("Numéro", original, "[NUMÉRO ANONYMISÉ]"))
+
+# Anonymiser les emails
+for match in re.finditer(PATTERNS['email'], text):
+    original = match.group()
+    anonymized = anonymized.replace(original, "[EMAIL ANONYMISÉ]")
+    replacements.append(("Email", original, "[EMAIL ANONYMISÉ]"))
+
+# Anonymiser les téléphones
+for match in re.finditer(PATTERNS['telephone'], text):
+    original = match.group()
+    anonymized = anonymized.replace(original, "[TÉL ANONYMISÉ]")
+    replacements.append(("Téléphone", original, "[TÉL ANONYMISÉ]"))
+
+# Anonymiser les numéros de sécurité sociale
+for match in re.finditer(PATTERNS['numero_secu'], text):
+    original = match.group()
+    anonymized = anonymized.replace(original, "[N°SS ANONYMISÉ]")
+    replacements.append(("N°SS", original, "[N°SS ANONYMISÉ]"))
+
+# Anonymiser selon les labels
+for label in labels_to_remove:
+    # Pattern pour trouver "Label : valeur" ou "Label: valeur"
+    pattern = rf'{re.escape(label)}\s*:?\s*([^\n]+)'
+    for match in re.finditer(pattern, anonymized, re.IGNORECASE):
+        full_match = match.group(0)
+        value = match.group(1).strip()
+        if value and len(value) > 0:
+            replacement = f"{label}: [ANONYMISÉ]"
+            anonymized = anonymized.replace(full_match, replacement)
+            replacements.append((label, value, "[ANONYMISÉ]"))
+
+return anonymized, replacements
+```
+
+def anonymize_pdf(pdf_bytes, labels_to_remove):
+“”“Anonymise un fichier PDF”””
+doc = fitz.open(stream=pdf_bytes, filetype=“pdf”)
+all_replacements = []
+
+```
+for page_num in range(len(doc)):
+    page = doc[page_num]
+    text = page.get_text()
+    
+    # Anonymiser le texte
+    anonymized_text, replacements = anonymize_text(text, labels_to_remove)
+    all_replacements.extend(replacements)
+    
+    # Rechercher et masquer les informations sur la page
+    for label in labels_to_remove:
+        areas = page.search_for(label, flags=fitz.TEXT_PRESERVE_WHITESPACE)
+        for area in areas:
+            # Étendre la zone pour couvrir la valeur après le label
+            extended_area = fitz.Rect(area.x0, area.y0, area.x0 + 300, area.y1)
+            page.add_redact_annot(extended_area, fill=(0, 0, 0))
+    
+    # Masquer les dates
+    for match in re.finditer(PATTERNS['dates'], text):
+        areas = page.search_for(match.group())
+        for area in areas:
+            page.add_redact_annot(area, fill=(0, 0, 0))
+    
+    # Masquer les numéros longs
+    for match in re.finditer(PATTERNS['numeros_longs'], text):
+        areas = page.search_for(match.group())
+        for area in areas:
+            page.add_redact_annot(area, fill=(0, 0, 0))
+    
+    # Masquer les emails
+    for match in re.finditer(PATTERNS['email'], text):
+        areas = page.search_for(match.group())
+        for area in areas:
+            page.add_redact_annot(area, fill=(0, 0, 0))
+    
+    # Masquer les téléphones
+    for match in re.finditer(PATTERNS['telephone'], text):
+        areas = page.search_for(match.group())
+        for area in areas:
+            page.add_redact_annot(area, fill=(0, 0, 0))
+    
+    page.apply_redactions()
+
+# Sauvegarder le PDF anonymisé
+output_bytes = doc.write()
+doc.close()
+
+return output_bytes, all_replacements
+```
+
+def anonymize_docx(docx_bytes, labels_to_remove):
+“”“Anonymise un fichier Word”””
+doc = Document(BytesIO(docx_bytes))
+all_replacements = []
+
+```
+# Anonymiser les paragraphes
+for para in doc.paragraphs:
+    if para.text.strip():
+        anonymized_text, replacements = anonymize_text(para.text, labels_to_remove)
+        all_replacements.extend(replacements)
+        para.text = anonymized_text
+
+# Anonymiser les tableaux
+for table in doc.tables:
+    for row in table.rows:
+        for cell in row.cells:
+            if cell.text.strip():
+                anonymized_text, replacements = anonymize_text(cell.text, labels_to_remove)
+                all_replacements.extend(replacements)
+                cell.text = anonymized_text
+
+# Sauvegarder le document
+output_buffer = BytesIO()
+doc.save(output_buffer)
+output_buffer.seek(0)
+
+return output_buffer.getvalue(), all_replacements
+```
+
+def anonymize_txt(txt_bytes, labels_to_remove):
+“”“Anonymise un fichier texte”””
+text = txt_bytes.decode(‘utf-8’, errors=‘ignore’)
+anonymized_text, replacements = anonymize_text(text, labels_to_remove)
+return anonymized_text.encode(‘utf-8’), replacements
+
+def anonymize_image(image_bytes, labels_to_remove, use_ocr=True):
+“”“Anonymise une image médicale”””
+# Charger l’image
+image = Image.open(BytesIO(image_bytes))
+
+```
+# Convertir en RGB si nécessaire
+if image.mode != 'RGB':
+    image = image.convert('RGB')
+
+# Créer une copie pour l'anonymisation
+anonymized_image = image.copy()
+draw = ImageDraw.Draw(anonymized_image)
+
+all_replacements = []
+
+if use_ocr:
     try:
-        # Utilisation de pdfplumber pour une meilleure extraction
-        with pdfplumber.open(file) as pdf:
-            for page in pdf.pages:
-                page_text = page.extract_text()
-                if page_text:
-                    text += page_text + "\n"
+        # Extraire le texte avec OCR
+        ocr_data = pytesseract.image_to_data(image, lang='fra+eng', output_type=pytesseract.Output.DICT)
+        
+        n_boxes = len(ocr_data['text'])
+        for i in range(n_boxes):
+            text = ocr_data['text'][i].strip()
+            
+            if text:  # Si du texte est détecté
+                conf = int(ocr_data['conf'][i])
+                
+                # Ne traiter que le texte avec une confiance > 30
+                if conf > 30:
+                    # Vérifier si le texte correspond aux patterns
+                    should_anonymize = False
+                    replacement_type = ""
+                    
+                    # Vérifier les dates
+                    if re.match(PATTERNS['dates'], text):
+                        should_anonymize = True
+                        replacement_type = "Date"
+                    
+                    # Vérifier les numéros longs
+                    elif re.match(PATTERNS['numeros_longs'], text):
+                        should_anonymize = True
+                        replacement_type = "Numéro"
+                    
+                    # Vérifier les emails
+                    elif re.match(PATTERNS['email'], text):
+                        should_anonymize = True
+                        replacement_type = "Email"
+                    
+                    # Vérifier les téléphones
+                    elif re.match(PATTERNS['telephone'], text):
+                        should_anonymize = True
+                        replacement_type = "Téléphone"
+                    
+                    # Vérifier les labels personnalisés
+                    else:
+                        for label in labels_to_remove:
+                            if label.lower() in text.lower():
+                                should_anonymize = True
+                                replacement_type = label
+                                break
+                    
+                    if should_anonymize:
+                        # Obtenir les coordonnées du rectangle
+                        x, y, w, h = (ocr_data['left'][i], 
+                                    ocr_data['top'][i], 
+                                    ocr_data['width'][i], 
+                                    ocr_data['height'][i])
+                        
+                        # Agrandir légèrement la zone pour couvrir tout le texte
+                        padding = 5
+                        x -= padding
+                        y -= padding
+                        w += padding * 2
+                        h += padding * 2
+                        
+                        # Dessiner un rectangle noir pour masquer
+                        draw.rectangle([x, y, x + w, y + h], fill='black')
+                        
+                        all_replacements.append((replacement_type, text, "[ANONYMISÉ]"))
+    
     except Exception as e:
-        st.error(f"Erreur lors de l'extraction du texte du PDF: {str(e)}")
-        # Fallback avec PyPDF2
+        st.warning(f"⚠️ OCR non disponible ou erreur: {str(e)}. Anonymisation manuelle appliquée.")
+
+# Méthode alternative : détection de texte avec OpenCV (plus robuste)
+try:
+    # Convertir en numpy array pour OpenCV
+    img_array = np.array(image)
+    gray = cv2.cvtColor(img_array, cv2.COLOR_RGB2GRAY)
+    
+    # Appliquer un seuillage adaptatif
+    thresh = cv2.adaptiveThreshold(gray, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, 
+                                   cv2.THRESH_BINARY, 11, 2)
+    
+    # Détecter les contours (zones de texte potentielles)
+    contours, _ = cv2.findContours(thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    
+    # Filtrer les contours par taille (probablement du texte)
+    for contour in contours:
+        x, y, w, h = cv2.boundingRect(contour)
+        
+        # Filtrer les petits contours (bruit) et les très grands (pas du texte)
+        if 20 < w < image.width * 0.8 and 10 < h < 100:
+            # Extraire la région d'intérêt
+            roi = gray[y:y+h, x:x+w]
+            
+            # Vérifier si c'est probablement du texte (densité de pixels)
+            white_pixel_ratio = np.sum(roi > 200) / (w * h)
+            
+            if 0.3 < white_pixel_ratio < 0.95:
+                # Masquer cette zone si elle est dans les zones supérieures de l'image
+                # (où se trouvent généralement les en-têtes avec infos patient)
+                if y < image.height * 0.3:  # 30% supérieur de l'image
+                    draw.rectangle([x, y, x + w, y + h], fill='black')
+                    all_replacements.append(("Zone détectée", f"Position ({x},{y})", "[MASQUÉ]"))
+
+except Exception as e:
+    st.warning(f"⚠️ Détection automatique de zones limitée: {str(e)}")
+
+# Sauvegarder l'image anonymisée
+output_buffer = BytesIO()
+anonymized_image.save(output_buffer, format=image.format if image.format else 'PNG')
+output_buffer.seek(0)
+
+return output_buffer.getvalue(), all_replacements, image.format if image.format else 'PNG'
+```
+
+# Interface utilisateur
+
+st.sidebar.header(“⚙️ Configuration”)
+
+# Sélection des labels à anonymiser
+
+st.sidebar.subheader(“Labels à anonymiser”)
+selected_labels = st.sidebar.multiselect(
+“Sélectionnez les champs à anonymiser:”,
+LABELS_COMMUNS,
+default=[“Nom”, “Prénom”, “N° patient”, “Âge”, “Date de naissance”,
+“Établissement”, “Date étude”, “Effectué par”]
+)
+
+# Option pour ajouter des labels personnalisés
+
+custom_labels = st.sidebar.text_area(
+“Labels personnalisés (un par ligne):”,
+help=“Ajoutez des labels supplémentaires à anonymiser”
+)
+
+if custom_labels:
+custom_labels_list = [label.strip() for label in custom_labels.split(’\n’) if label.strip()]
+selected_labels.extend(custom_labels_list)
+
+# Options pour les images
+
+st.sidebar.subheader(“Options pour les images”)
+use_ocr = st.sidebar.checkbox(
+“Utiliser l’OCR (reconnaissance de texte)”,
+value=True,
+help=“Active la détection automatique de texte dans les images”
+)
+
+st.sidebar.markdown(”—”)
+st.sidebar.info(
+“ℹ️ **Information**\n\n”
+“Cette application anonymise automatiquement:\n”
+“- Les dates (JJ/MM/AAAA)\n”
+“- Les numéros longs (6+ chiffres)\n”
+“- Les emails\n”
+“- Les numéros de téléphone\n”
+“- Les numéros de sécurité sociale\n”
+“- Les champs sélectionnés\n”
+“- Le texte dans les images (OCR)”
+)
+
+# Zone de téléchargement de fichier
+
+st.subheader(“📤 Charger le document médical”)
+uploaded_file = st.file_uploader(
+“Choisissez un fichier (PDF, Word, TXT ou Image)”,
+type=[‘pdf’, ‘docx’, ‘doc’, ‘txt’, ‘png’, ‘jpg’, ‘jpeg’, ‘gif’, ‘bmp’, ‘tiff’],
+help=“Formats acceptés: PDF, DOCX, TXT, PNG, JPG, JPEG, GIF, BMP, TIFF”
+)
+
+if uploaded_file is not None:
+st.success(f”✅ Fichier chargé: {uploaded_file.name}”)
+
+```
+# Afficher un aperçu pour les images
+file_extension = uploaded_file.name.split('.')[-1].lower()
+if file_extension in ['png', 'jpg', 'jpeg', 'gif', 'bmp', 'tiff']:
+    col1, col2 = st.columns(2)
+    with col1:
+        st.subheader("📷 Image originale")
+        st.image(uploaded_file, use_container_width=True)
+
+# Bouton pour lancer l'anonymisation
+if st.button("🔒 Anonymiser le document", type="primary"):
+    with st.spinner("Anonymisation en cours..."):
         try:
-            pdf_reader = PyPDF2.PdfReader(file)
-            for page in pdf_reader.pages:
-                text += page.extract_text() + "\n"
-        except Exception as e2:
-            st.error(f"Erreur avec la méthode alternative: {str(e2)}")
-            return None
-    return text
-
-def extract_text_from_docx(file):
-    """Extrait le texte d'un fichier Word (.docx)."""
-    try:
-        doc = Document(file)
-        text = ""
-        for para in doc.paragraphs:
-            text += para.text + "\n"
-        return text
-    except Exception as e:
-        st.error(f"Erreur lors de l'extraction du texte du document Word: {str(e)}")
-        return None
-
-def create_pdf_from_text(text, filename):
-    """Crée un fichier PDF à partir du texte traité."""
-    buffer = BytesIO()
-    p = canvas.Canvas(buffer, pagesize=letter)
-    width, height = letter
-    
-    # Définir les marges
-    margin = 72
-    y_position = height - margin
-    line_height = 14
-    
-    # Diviser le texte en lignes pour l'affichage
-    lines = text.split('\n')
-    
-    for line in lines:
-        # Vérifier si nous avons besoin d'une nouvelle page
-        if y_position < margin:
-            p.showPage()
-            y_position = height - margin
-        
-        # Diviser les lignes longues pour qu'elles tiennent dans la page
-        wrapped_lines = simpleSplit(line, "Helvetica", 10, width - 2 * margin)
-        
-        for wrapped_line in wrapped_lines:
-            if y_position < margin:
-                p.showPage()
-                y_position = height - margin
+            file_bytes = uploaded_file.read()
+            file_extension = uploaded_file.name.split('.')[-1].lower()
             
-            p.drawString(margin, y_position, wrapped_line)
-            y_position -= line_height
-    
-    p.save()
-    buffer.seek(0)
-    return buffer
-
-def create_docx_from_text(text, filename):
-    """Crée un fichier Word (.docx) à partir du texte traité."""
-    doc = Document()
-    
-    # Ajouter le texte au document
-    for line in text.split('\n'):
-        doc.add_paragraph(line)
-    
-    # Sauvegarder dans un buffer
-    buffer = BytesIO()
-    doc.save(buffer)
-    buffer.seek(0)
-    return buffer
-
-# Fonctions d'anonymisation
-def anonymize_with_regex(text):
-    """Anonymise le texte en utilisant des expressions régulières."""
-    if not text:
-        return text
-    
-    # Remplacer les dates au format JJ/MM/AAAA
-    text = re.sub(r'\b\d{2}/\d{2}/\d{4}\b', '[DATE]', text)
-    
-    # Remplacer les dates au format JJ-MM-AAAA
-    text = re.sub(r'\b\d{2}-\d{2}-\d{4}\b', '[DATE]', text)
-    
-    # Remplacer les dates au format AAAA-MM-JJ
-    text = re.sub(r'\b\d{4}-\d{2}-\d{2}\b', '[DATE]', text)
-    
-    # Remplacer les numéros de téléphone (français)
-    text = re.sub(r'\b0[1-9]([-. ]?[0-9]{2}){4}\b', '[TÉLÉPHONE]', text)
-    
-    # Remplacer les numéros longs (potentiellement des identifiants)
-    text = re.sub(r'\b\d{8,}\b', '[ID]', text)
-    
-    # Remplacer les adresses e-mail
-    text = re.sub(r'\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b', '[EMAIL]', text)
-    
-    # Remplacer les codes postaux (français)
-    text = re.sub(r'\b[0-9]{5}\b', '[CODE POSTAL]', text)
-    
-    # Remplacer les âges
-    text = re.sub(r'\b(\d{1,2})\s*(ans|an)\b', r'[ÂGE: \1 ans]', text)
-    
-    # Remplacer les numéros de sécurité sociale (français)
-    text = re.sub(r'\b[12]\s*([0-9]{2})\s*([0-9]{2})\s*([0-9]{3})\s*([0-9]{3})\s*([0-9]{2})\s*([0-9]{2})\b', '[SÉCURITÉ SOCIALE]', text)
-    
-    # Remplacer les motifs courants dans les documents médicaux
-    text = re.sub(r'(?i)(nom\s*:\s*)([A-Z][a-z]+\s*[A-Z][a-z]+)', r'\1[NOM]', text)
-    text = re.sub(r'(?i)(prénom\s*:\s*)([A-Z][a-z]+)', r'\1[PRÉNOM]', text)
-    text = re.sub(r'(?i)(n°\s*patient\s*:\s*)(\w+)', r'\1[ID PATIENT]', text)
-    text = re.sub(r'(?i)(patient\s*:\s*)([A-Z][a-z]+\s*[A-Z][a-z]+)', r'\1[PATIENT]', text)
-    text = re.sub(r'(?i)(date\s*d[\'\u2019]étude\s*:\s*)(\d{2}/\d{2}/\d{4})', r'\1[DATE]', text)
-    text = re.sub(r'(?i)(effectué\s*par\s*:\s*)([A-Z][a-z]+\s*[A-Z][a-z]+)', r'\1[MÉDECIN]', text)
-    text = re.sub(r'(?i)(établissement\s*:\s*)([A-Z][a-z]+\s*[A-Z][a-z]+)', r'\1[ÉTABLISSEMENT]', text)
-    
-    return text
-
-def anonymize_with_nlp(text):
-    """Anonymise le texte en utilisant le traitement NLP pour détecter les noms propres."""
-    if not text or not NLP_AVAILABLE:
-        return text
-    
-    try:
-        doc = nlp(text)
-        anonymized_text = text
-        
-        # Détecter et remplacer les entités nommées de type PERSON
-        for ent in doc.ents:
-            if ent.label_ == "PER" or ent.label_ == "PERSON":
-                anonymized_text = anonymized_text.replace(ent.text, "[NOM]")
-        
-        return anonymized_text
-    except Exception as e:
-        st.error(f"Erreur lors de l'anonymisation NLP: {str(e)}")
-        return text
-
-def anonymize_text(text, use_nlp=True):
-    """Fonction principale d'anonymisation qui combine regex et NLP."""
-    if not text:
-        return text
-    
-    # D'abord, utiliser les expressions régulières
-    anonymized = anonymize_with_regex(text)
-    
-    # Ensuite, utiliser NLP si disponible et demandé
-    if use_nlp and NLP_AVAILABLE:
-        anonymized = anonymize_with_nlp(anonymized)
-    
-    return anonymized
-
-# Interface utilisateur Streamlit
-def main():
-    st.title("🏥 Anonymisation de Documents Médicaux")
-    st.markdown("""
-    Cette application permet d'anonymiser des documents médicaux en supprimant les informations d'identification du patient.
-    
-    Les informations suivantes seront masquées :
-    - Noms de patients
-    - Numéros de patients
-    - Âges
-    - Noms d'établissements
-    - Dates (format JJ/MM/AAAA)
-    - Numéros de téléphone
-    - Adresses e-mail
-    - Codes postaux
-    - Numéros de sécurité sociale
-    - Numéros longs (identifiants potentiels)
-    """)
-    
-    # Options de traitement
-    st.sidebar.header("Options de traitement")
-    use_nlp = st.sidebar.checkbox("Utiliser le NLP pour détecter les noms propres", value=True, 
-                                  help="Améliore la détection des noms propres mais nécessite plus de temps de traitement.")
-    
-    # Upload du fichier
-    uploaded_file = st.file_uploader(
-        "Téléchargez un document médical (PDF ou Word)",
-        type=["pdf", "docx"]
-    )
-    
-    if uploaded_file is not None:
-        file_details = {
-            "Nom du fichier": uploaded_file.name,
-            "Type de fichier": uploaded_file.type,
-            "Taille": f"{uploaded_file.size / 1024:.2f} KB"
-        }
-        
-        st.write("### Détails du fichier")
-        st.json(file_details)
-        
-        # Extraction du texte
-        st.write("### Extraction du texte")
-        with st.spinner("Extraction du texte en cours..."):
-            if uploaded_file.type == "application/pdf":
-                original_text = extract_text_from_pdf(uploaded_file)
-            elif uploaded_file.type == "application/vnd.openxmlformats-officedocument.wordprocessingml.document":
-                original_text = extract_text_from_docx(uploaded_file)
+            # Anonymiser selon le type de fichier
+            if file_extension == 'pdf':
+                anonymized_bytes, replacements = anonymize_pdf(file_bytes, selected_labels)
+                mime_type = "application/pdf"
+                output_extension = "pdf"
+                
+            elif file_extension in ['docx', 'doc']:
+                anonymized_bytes, replacements = anonymize_docx(file_bytes, selected_labels)
+                mime_type = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                output_extension = "docx"
+                
+            elif file_extension == 'txt':
+                anonymized_bytes, replacements = anonymize_txt(file_bytes, selected_labels)
+                mime_type = "text/plain"
+                output_extension = "txt"
+            
+            elif file_extension in ['png', 'jpg', 'jpeg', 'gif', 'bmp', 'tiff']:
+                anonymized_bytes, replacements, img_format = anonymize_image(
+                    file_bytes, selected_labels, use_ocr
+                )
+                mime_type = f"image/{img_format.lower()}"
+                output_extension = img_format.lower()
+            
+            st.success("✅ Anonymisation terminée!")
+            
+            # Afficher l'image anonymisée si c'est une image
+            if file_extension in ['png', 'jpg', 'jpeg', 'gif', 'bmp', 'tiff']:
+                with col2:
+                    st.subheader("🔒 Image anonymisée")
+                    st.image(anonymized_bytes, use_container_width=True)
+            
+            # Afficher les statistiques
+            col_stat1, col_stat2 = st.columns(2)
+            with col_stat1:
+                st.metric("Éléments anonymisés", len(replacements))
+            with col_stat2:
+                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            
+            # Tableau des remplacements
+            if replacements:
+                st.subheader("📊 Détails des anonymisations")
+                df_replacements = pd.DataFrame(
+                    replacements,
+                    columns=["Type", "Valeur originale", "Remplacement"]
+                )
+                st.dataframe(df_replacements, use_container_width=True)
             else:
-                st.error("Type de fichier non pris en charge.")
-                return
-        
-        if original_text:
-            st.success("Texte extrait avec succès!")
+                st.info("ℹ️ Aucune donnée sensible détectée automatiquement.")
             
-            # Afficher un aperçu du texte original
-            with st.expander("Aperçu du texte original"):
-                st.text_area("Texte original", original_text, height=300)
+            # Bouton de téléchargement
+            st.subheader("💾 Télécharger le document anonymisé")
+            original_name = uploaded_file.name.rsplit('.', 1)[0]
+            output_filename = f"{original_name}_anonymise_{timestamp}.{output_extension}"
             
-            # Anonymisation
-            st.write("### Anonymisation")
-            with st.spinner("Anonymisation en cours..."):
-                anonymized_text = anonymize_text(original_text, use_nlp)
-            
-            st.success("Anonymisation terminée!")
-            
-            # Afficher un aperçu du texte anonymisé
-            with st.expander("Aperçu du texte anonymisé"):
-                st.text_area("Texte anonymisé", anonymized_text, height=300)
-            
-            # Création du fichier de sortie
-            st.write("### Création du fichier anonymisé")
-            
-            # Déterminer le type de fichier de sortie
-            output_format = st.radio(
-                "Format du fichier de sortie",
-                ["PDF", "Word (.docx)"],
-                index=0 if uploaded_file.type == "application/pdf" else 1
+            st.download_button(
+                label=f"📥 Télécharger {output_filename}",
+                data=anonymized_bytes,
+                file_name=output_filename,
+                mime=mime_type,
+                type="primary"
             )
             
-            # Bouton pour télécharger le fichier anonymisé
-            if st.button("Générer et télécharger le fichier anonymisé"):
-                with st.spinner("Génération du fichier en cours..."):
-                    # Créer le nom de fichier de sortie
-                    base_filename = os.path.splitext(uploaded_file.name)[0]
-                    output_filename = f"{base_filename}_anonymized"
-                    
-                    if output_format == "PDF":
-                        buffer = create_pdf_from_text(anonymized_text, output_filename)
-                        st.download_button(
-                            label="Télécharger le PDF anonymisé",
-                            data=buffer,
-                            file_name=f"{output_filename}.pdf",
-                            mime="application/pdf"
-                        )
-                    else:
-                        buffer = create_docx_from_text(anonymized_text, output_filename)
-                        st.download_button(
-                            label="Télécharger le document Word anonymisé",
-                            data=buffer,
-                            file_name=f"{output_filename}.docx",
-                            mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-                        )
-                
-                st.success("Fichier anonymisé prêt à être téléchargé!")
+            st.warning(
+                "⚠️ **Attention**: Vérifiez toujours manuellement le document anonymisé "
+                "avant de le partager pour vous assurer que toutes les données sensibles "
+                "ont été correctement supprimées."
+            )
+            
+        except Exception as e:
+            st.error(f"❌ Erreur lors de l'anonymisation: {str(e)}")
+            st.exception(e)
+```
 
-if __name__ == "__main__":
-    main()
+else:
+# Instructions
+st.info(
+“👈 **Pour commencer:**\n\n”
+“1. Sélectionnez les champs à anonymiser dans la barre latérale\n”
+“2. Téléchargez votre document médical (PDF, Word, TXT ou Image)\n”
+“3. Cliquez sur ‘Anonymiser le document’\n”
+“4. Téléchargez le document anonymisé”
+)
+
+```
+# Exemples d'utilisation
+with st.expander("📖 Types de fichiers supportés"):
+    st.markdown("""
+    **Documents texte:**
+    - PDF (avec masquage visuel des données)
+    - Word (.docx)
+    - Fichiers texte (.txt)
+    
+    **Images médicales:**
+    - PNG
+    - JPG / JPEG
+    - GIF
+    - BMP
+    - TIFF
+    
+    Pour les images, l'OCR détecte automatiquement le texte et masque:
+    - Les informations d'en-tête (nom, date, numéro)
+    - Les dates et numéros dans l'image
+    - Les zones de texte personnalisées
+    """)
+```
+
+# Footer
+
+st.markdown(”—”)
+st.markdown(
+“<div style='text-align: center; color: gray;'>”
+“🔒 Application d’anonymisation de documents médicaux | “
+“Développé pour la protection des données patients | “
+“Support: PDF, Word, TXT, Images”
+“</div>”,
+unsafe_allow_html=True
+)
