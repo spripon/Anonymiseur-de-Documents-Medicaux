@@ -14,17 +14,17 @@ import cv2
 # Configuration de la page
 
 st.set_page_config(
-page_title=“Anonymiseur de Documents Médicaux”,
+page_title=“Anonymiseur de Documents Medicaux”,
 page_icon=“🏥”,
 layout=“wide”
 )
 
 # Titre de l’application
 
-st.title(“🏥 Anonymiseur de Documents Médicaux”)
+st.title(“🏥 Anonymiseur de Documents Medicaux”)
 st.markdown(”—”)
 
-# Définition des patterns de détection
+# Definition des patterns de detection
 
 PATTERNS = {
 ‘dates’: r’\b\d{1,2}[/-]\d{1,2}[/-]\d{2,4}\b’,
@@ -38,12 +38,12 @@ PATTERNS = {
 # Labels personnalisables
 
 LABELS_COMMUNS = [
-“Nom”, “Prénom”, “N° patient”, “Numéro patient”, “Patient”,
-“Âge”, “Age”, “Date de naissance”, “Né(e) le”,
-“Établissement”, “Etablissement”, “Hôpital”, “Clinique”,
-“Date étude”, “Date d’étude”, “Date examen”,
-“Effectué par”, “Réalisé par”, “Médecin”, “Docteur”, “Dr”,
-“Adresse”, “Téléphone”, “Tel”, “Email”, “N°SS”, “Sécurité sociale”
+“Nom”, “Prenom”, “N° patient”, “Numero patient”, “Patient”,
+“Age”, “Date de naissance”, “Ne(e) le”,
+“Etablissement”, “Hopital”, “Clinique”,
+“Date etude”, “Date d’etude”, “Date examen”,
+“Effectue par”, “Realise par”, “Medecin”, “Docteur”, “Dr”,
+“Adresse”, “Telephone”, “Tel”, “Email”, “N°SS”, “Securite sociale”
 ]
 
 def anonymize_text(text, labels_to_remove):
@@ -55,34 +55,34 @@ replacements = []
 # Anonymiser les dates
 for match in re.finditer(PATTERNS['dates'], text):
     original = match.group()
-    anonymized = anonymized.replace(original, "[DATE ANONYMISÉE]")
-    replacements.append(("Date", original, "[DATE ANONYMISÉE]"))
+    anonymized = anonymized.replace(original, "[DATE ANONYMISEE]")
+    replacements.append(("Date", original, "[DATE ANONYMISEE]"))
 
-# Anonymiser les numéros longs
+# Anonymiser les numeros longs
 for match in re.finditer(PATTERNS['numeros_longs'], text):
     original = match.group()
-    # Éviter de remplacer les numéros qui font partie d'une date
+    # Eviter de remplacer les numeros qui font partie d'une date
     if not re.search(r'\d{1,2}[/-]' + re.escape(original), text):
-        anonymized = anonymized.replace(original, "[NUMÉRO ANONYMISÉ]")
-        replacements.append(("Numéro", original, "[NUMÉRO ANONYMISÉ]"))
+        anonymized = anonymized.replace(original, "[NUMERO ANONYMISE]")
+        replacements.append(("Numero", original, "[NUMERO ANONYMISE]"))
 
 # Anonymiser les emails
 for match in re.finditer(PATTERNS['email'], text):
     original = match.group()
-    anonymized = anonymized.replace(original, "[EMAIL ANONYMISÉ]")
-    replacements.append(("Email", original, "[EMAIL ANONYMISÉ]"))
+    anonymized = anonymized.replace(original, "[EMAIL ANONYMISE]")
+    replacements.append(("Email", original, "[EMAIL ANONYMISE]"))
 
-# Anonymiser les téléphones
+# Anonymiser les telephones
 for match in re.finditer(PATTERNS['telephone'], text):
     original = match.group()
-    anonymized = anonymized.replace(original, "[TÉL ANONYMISÉ]")
-    replacements.append(("Téléphone", original, "[TÉL ANONYMISÉ]"))
+    anonymized = anonymized.replace(original, "[TEL ANONYMISE]")
+    replacements.append(("Telephone", original, "[TEL ANONYMISE]"))
 
-# Anonymiser les numéros de sécurité sociale
+# Anonymiser les numeros de securite sociale
 for match in re.finditer(PATTERNS['numero_secu'], text):
     original = match.group()
-    anonymized = anonymized.replace(original, "[N°SS ANONYMISÉ]")
-    replacements.append(("N°SS", original, "[N°SS ANONYMISÉ]"))
+    anonymized = anonymized.replace(original, "[N°SS ANONYMISE]")
+    replacements.append(("N°SS", original, "[N°SS ANONYMISE]"))
 
 # Anonymiser selon les labels
 for label in labels_to_remove:
@@ -92,9 +92,9 @@ for label in labels_to_remove:
         full_match = match.group(0)
         value = match.group(1).strip()
         if value and len(value) > 0:
-            replacement = f"{label}: [ANONYMISÉ]"
+            replacement = f"{label}: [ANONYMISE]"
             anonymized = anonymized.replace(full_match, replacement)
-            replacements.append((label, value, "[ANONYMISÉ]"))
+            replacements.append((label, value, "[ANONYMISE]"))
 
 return anonymized, replacements
 ```
@@ -117,7 +117,7 @@ for page_num in range(len(doc)):
     for label in labels_to_remove:
         areas = page.search_for(label, flags=fitz.TEXT_PRESERVE_WHITESPACE)
         for area in areas:
-            # Étendre la zone pour couvrir la valeur après le label
+            # Etendre la zone pour couvrir la valeur apres le label
             extended_area = fitz.Rect(area.x0, area.y0, area.x0 + 300, area.y1)
             page.add_redact_annot(extended_area, fill=(0, 0, 0))
     
@@ -127,7 +127,7 @@ for page_num in range(len(doc)):
         for area in areas:
             page.add_redact_annot(area, fill=(0, 0, 0))
     
-    # Masquer les numéros longs
+    # Masquer les numeros longs
     for match in re.finditer(PATTERNS['numeros_longs'], text):
         areas = page.search_for(match.group())
         for area in areas:
@@ -139,7 +139,7 @@ for page_num in range(len(doc)):
         for area in areas:
             page.add_redact_annot(area, fill=(0, 0, 0))
     
-    # Masquer les téléphones
+    # Masquer les telephones
     for match in re.finditer(PATTERNS['telephone'], text):
         areas = page.search_for(match.group())
         for area in areas:
@@ -147,7 +147,7 @@ for page_num in range(len(doc)):
     
     page.apply_redactions()
 
-# Sauvegarder le PDF anonymisé
+# Sauvegarder le PDF anonymise
 output_bytes = doc.write()
 doc.close()
 
@@ -191,16 +191,16 @@ anonymized_text, replacements = anonymize_text(text, labels_to_remove)
 return anonymized_text.encode(‘utf-8’), replacements
 
 def anonymize_image(image_bytes, labels_to_remove, use_ocr=True):
-“”“Anonymise une image médicale”””
+“”“Anonymise une image medicale”””
 # Charger l’image
 image = Image.open(BytesIO(image_bytes))
 
 ```
-# Convertir en RGB si nécessaire
+# Convertir en RGB si necessaire
 if image.mode != 'RGB':
     image = image.convert('RGB')
 
-# Créer une copie pour l'anonymisation
+# Creer une copie pour l'anonymisation
 anonymized_image = image.copy()
 draw = ImageDraw.Draw(anonymized_image)
 
@@ -215,36 +215,36 @@ if use_ocr:
         for i in range(n_boxes):
             text = ocr_data['text'][i].strip()
             
-            if text:  # Si du texte est détecté
+            if text:  # Si du texte est detecte
                 conf = int(ocr_data['conf'][i])
                 
                 # Ne traiter que le texte avec une confiance > 30
                 if conf > 30:
-                    # Vérifier si le texte correspond aux patterns
+                    # Verifier si le texte correspond aux patterns
                     should_anonymize = False
                     replacement_type = ""
                     
-                    # Vérifier les dates
+                    # Verifier les dates
                     if re.match(PATTERNS['dates'], text):
                         should_anonymize = True
                         replacement_type = "Date"
                     
-                    # Vérifier les numéros longs
+                    # Verifier les numeros longs
                     elif re.match(PATTERNS['numeros_longs'], text):
                         should_anonymize = True
-                        replacement_type = "Numéro"
+                        replacement_type = "Numero"
                     
-                    # Vérifier les emails
+                    # Verifier les emails
                     elif re.match(PATTERNS['email'], text):
                         should_anonymize = True
                         replacement_type = "Email"
                     
-                    # Vérifier les téléphones
+                    # Verifier les telephones
                     elif re.match(PATTERNS['telephone'], text):
                         should_anonymize = True
-                        replacement_type = "Téléphone"
+                        replacement_type = "Telephone"
                     
-                    # Vérifier les labels personnalisés
+                    # Verifier les labels personnalises
                     else:
                         for label in labels_to_remove:
                             if label.lower() in text.lower():
@@ -253,13 +253,13 @@ if use_ocr:
                                 break
                     
                     if should_anonymize:
-                        # Obtenir les coordonnées du rectangle
+                        # Obtenir les coordonnees du rectangle
                         x, y, w, h = (ocr_data['left'][i], 
                                     ocr_data['top'][i], 
                                     ocr_data['width'][i], 
                                     ocr_data['height'][i])
                         
-                        # Agrandir légèrement la zone pour couvrir tout le texte
+                        # Agrandir legerement la zone pour couvrir tout le texte
                         padding = 5
                         x -= padding
                         y -= padding
@@ -269,12 +269,12 @@ if use_ocr:
                         # Dessiner un rectangle noir pour masquer
                         draw.rectangle([x, y, x + w, y + h], fill='black')
                         
-                        all_replacements.append((replacement_type, text, "[ANONYMISÉ]"))
+                        all_replacements.append((replacement_type, text, "[ANONYMISE]"))
     
     except Exception as e:
-        st.warning(f"⚠️ OCR non disponible ou erreur: {str(e)}. Anonymisation manuelle appliquée.")
+        st.warning(f"⚠️ OCR non disponible ou erreur: {str(e)}. Anonymisation manuelle appliquee.")
 
-# Méthode alternative : détection de texte avec OpenCV (plus robuste)
+# Methode alternative : detection de texte avec OpenCV (plus robuste)
 try:
     # Convertir en numpy array pour OpenCV
     img_array = np.array(image)
@@ -284,32 +284,32 @@ try:
     thresh = cv2.adaptiveThreshold(gray, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, 
                                    cv2.THRESH_BINARY, 11, 2)
     
-    # Détecter les contours (zones de texte potentielles)
+    # Detecter les contours (zones de texte potentielles)
     contours, _ = cv2.findContours(thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
     
     # Filtrer les contours par taille (probablement du texte)
     for contour in contours:
         x, y, w, h = cv2.boundingRect(contour)
         
-        # Filtrer les petits contours (bruit) et les très grands (pas du texte)
+        # Filtrer les petits contours (bruit) et les tres grands (pas du texte)
         if 20 < w < image.width * 0.8 and 10 < h < 100:
-            # Extraire la région d'intérêt
+            # Extraire la region d'interet
             roi = gray[y:y+h, x:x+w]
             
-            # Vérifier si c'est probablement du texte (densité de pixels)
+            # Verifier si c'est probablement du texte (densite de pixels)
             white_pixel_ratio = np.sum(roi > 200) / (w * h)
             
             if 0.3 < white_pixel_ratio < 0.95:
-                # Masquer cette zone si elle est dans les zones supérieures de l'image
-                # (où se trouvent généralement les en-têtes avec infos patient)
-                if y < image.height * 0.3:  # 30% supérieur de l'image
+                # Masquer cette zone si elle est dans les zones superieures de l'image
+                # (ou se trouvent generalement les en-tetes avec infos patient)
+                if y < image.height * 0.3:  # 30% superieur de l'image
                     draw.rectangle([x, y, x + w, y + h], fill='black')
-                    all_replacements.append(("Zone détectée", f"Position ({x},{y})", "[MASQUÉ]"))
+                    all_replacements.append(("Zone detectee", f"Position ({x},{y})", "[MASQUE]"))
 
 except Exception as e:
-    st.warning(f"⚠️ Détection automatique de zones limitée: {str(e)}")
+    st.warning(f"⚠️ Detection automatique de zones limitee: {str(e)}")
 
-# Sauvegarder l'image anonymisée
+# Sauvegarder l'image anonymisee
 output_buffer = BytesIO()
 anonymized_image.save(output_buffer, format=image.format if image.format else 'PNG')
 output_buffer.seek(0)
@@ -321,21 +321,21 @@ return output_buffer.getvalue(), all_replacements, image.format if image.format 
 
 st.sidebar.header(“⚙️ Configuration”)
 
-# Sélection des labels à anonymiser
+# Selection des labels a anonymiser
 
-st.sidebar.subheader(“Labels à anonymiser”)
+st.sidebar.subheader(“Labels a anonymiser”)
 selected_labels = st.sidebar.multiselect(
-“Sélectionnez les champs à anonymiser:”,
+“Selectionnez les champs a anonymiser:”,
 LABELS_COMMUNS,
-default=[“Nom”, “Prénom”, “N° patient”, “Âge”, “Date de naissance”,
-“Établissement”, “Date étude”, “Effectué par”]
+default=[“Nom”, “Prenom”, “N° patient”, “Age”, “Date de naissance”,
+“Etablissement”, “Date etude”, “Effectue par”]
 )
 
-# Option pour ajouter des labels personnalisés
+# Option pour ajouter des labels personnalises
 
 custom_labels = st.sidebar.text_area(
-“Labels personnalisés (un par ligne):”,
-help=“Ajoutez des labels supplémentaires à anonymiser”
+“Labels personnalises (un par ligne):”,
+help=“Ajoutez des labels supplementaires a anonymiser”
 )
 
 if custom_labels:
@@ -348,7 +348,7 @@ st.sidebar.subheader(“Options pour les images”)
 use_ocr = st.sidebar.checkbox(
 “Utiliser l’OCR (reconnaissance de texte)”,
 value=True,
-help=“Active la détection automatique de texte dans les images”
+help=“Active la detection automatique de texte dans les images”
 )
 
 st.sidebar.markdown(”—”)
@@ -356,28 +356,28 @@ st.sidebar.info(
 “ℹ️ **Information**\n\n”
 “Cette application anonymise automatiquement:\n”
 “- Les dates (JJ/MM/AAAA)\n”
-“- Les numéros longs (6+ chiffres)\n”
+“- Les numeros longs (6+ chiffres)\n”
 “- Les emails\n”
-“- Les numéros de téléphone\n”
-“- Les numéros de sécurité sociale\n”
-“- Les champs sélectionnés\n”
+“- Les numeros de telephone\n”
+“- Les numeros de securite sociale\n”
+“- Les champs selectionnes\n”
 “- Le texte dans les images (OCR)”
 )
 
-# Zone de téléchargement de fichier
+# Zone de telechargement de fichier
 
-st.subheader(“📤 Charger le document médical”)
+st.subheader(“📤 Charger le document medical”)
 uploaded_file = st.file_uploader(
 “Choisissez un fichier (PDF, Word, TXT ou Image)”,
 type=[‘pdf’, ‘docx’, ‘doc’, ‘txt’, ‘png’, ‘jpg’, ‘jpeg’, ‘gif’, ‘bmp’, ‘tiff’],
-help=“Formats acceptés: PDF, DOCX, TXT, PNG, JPG, JPEG, GIF, BMP, TIFF”
+help=“Formats acceptes: PDF, DOCX, TXT, PNG, JPG, JPEG, GIF, BMP, TIFF”
 )
 
 if uploaded_file is not None:
-st.success(f”✅ Fichier chargé: {uploaded_file.name}”)
+st.success(f”✅ Fichier charge: {uploaded_file.name}”)
 
 ```
-# Afficher un aperçu pour les images
+# Afficher un apercu pour les images
 file_extension = uploaded_file.name.split('.')[-1].lower()
 if file_extension in ['png', 'jpg', 'jpeg', 'gif', 'bmp', 'tiff']:
     col1, col2 = st.columns(2)
@@ -415,39 +415,39 @@ if st.button("🔒 Anonymiser le document", type="primary"):
                 mime_type = f"image/{img_format.lower()}"
                 output_extension = img_format.lower()
             
-            st.success("✅ Anonymisation terminée!")
+            st.success("✅ Anonymisation terminee!")
             
-            # Afficher l'image anonymisée si c'est une image
+            # Afficher l'image anonymisee si c'est une image
             if file_extension in ['png', 'jpg', 'jpeg', 'gif', 'bmp', 'tiff']:
                 with col2:
-                    st.subheader("🔒 Image anonymisée")
+                    st.subheader("🔒 Image anonymisee")
                     st.image(anonymized_bytes, use_container_width=True)
             
             # Afficher les statistiques
             col_stat1, col_stat2 = st.columns(2)
             with col_stat1:
-                st.metric("Éléments anonymisés", len(replacements))
+                st.metric("Elements anonymises", len(replacements))
             with col_stat2:
                 timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
             
             # Tableau des remplacements
             if replacements:
-                st.subheader("📊 Détails des anonymisations")
+                st.subheader("📊 Details des anonymisations")
                 df_replacements = pd.DataFrame(
                     replacements,
                     columns=["Type", "Valeur originale", "Remplacement"]
                 )
                 st.dataframe(df_replacements, use_container_width=True)
             else:
-                st.info("ℹ️ Aucune donnée sensible détectée automatiquement.")
+                st.info("ℹ️ Aucune donnee sensible detectee automatiquement.")
             
-            # Bouton de téléchargement
-            st.subheader("💾 Télécharger le document anonymisé")
+            # Bouton de telechargement
+            st.subheader("💾 Telecharger le document anonymise")
             original_name = uploaded_file.name.rsplit('.', 1)[0]
             output_filename = f"{original_name}_anonymise_{timestamp}.{output_extension}"
             
             st.download_button(
-                label=f"📥 Télécharger {output_filename}",
+                label=f"📥 Telecharger {output_filename}",
                 data=anonymized_bytes,
                 file_name=output_filename,
                 mime=mime_type,
@@ -455,9 +455,9 @@ if st.button("🔒 Anonymiser le document", type="primary"):
             )
             
             st.warning(
-                "⚠️ **Attention**: Vérifiez toujours manuellement le document anonymisé "
-                "avant de le partager pour vous assurer que toutes les données sensibles "
-                "ont été correctement supprimées."
+                "⚠️ **Attention**: Verifiez toujours manuellement le document anonymise "
+                "avant de le partager pour vous assurer que toutes les donnees sensibles "
+                "ont ete correctement supprimees."
             )
             
         except Exception as e:
@@ -469,32 +469,32 @@ else:
 # Instructions
 st.info(
 “👈 **Pour commencer:**\n\n”
-“1. Sélectionnez les champs à anonymiser dans la barre latérale\n”
-“2. Téléchargez votre document médical (PDF, Word, TXT ou Image)\n”
+“1. Selectionnez les champs a anonymiser dans la barre laterale\n”
+“2. Telechargez votre document medical (PDF, Word, TXT ou Image)\n”
 “3. Cliquez sur ‘Anonymiser le document’\n”
-“4. Téléchargez le document anonymisé”
+“4. Telechargez le document anonymise”
 )
 
 ```
 # Exemples d'utilisation
-with st.expander("📖 Types de fichiers supportés"):
+with st.expander("📖 Types de fichiers supportes"):
     st.markdown("""
     **Documents texte:**
-    - PDF (avec masquage visuel des données)
+    - PDF (avec masquage visuel des donnees)
     - Word (.docx)
     - Fichiers texte (.txt)
     
-    **Images médicales:**
+    **Images medicales:**
     - PNG
     - JPG / JPEG
     - GIF
     - BMP
     - TIFF
     
-    Pour les images, l'OCR détecte automatiquement le texte et masque:
-    - Les informations d'en-tête (nom, date, numéro)
-    - Les dates et numéros dans l'image
-    - Les zones de texte personnalisées
+    Pour les images, l'OCR detecte automatiquement le texte et masque:
+    - Les informations d'en-tete (nom, date, numero)
+    - Les dates et numeros dans l'image
+    - Les zones de texte personnalisees
     """)
 ```
 
@@ -503,8 +503,8 @@ with st.expander("📖 Types de fichiers supportés"):
 st.markdown(”—”)
 st.markdown(
 “<div style='text-align: center; color: gray;'>”
-“🔒 Application d’anonymisation de documents médicaux | “
-“Développé pour la protection des données patients | “
+“🔒 Application d’anonymisation de documents medicaux | “
+“Developpe pour la protection des donnees patients | “
 “Support: PDF, Word, TXT, Images”
 “</div>”,
 unsafe_allow_html=True
