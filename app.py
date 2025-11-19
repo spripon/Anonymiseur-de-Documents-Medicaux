@@ -45,7 +45,7 @@ LABELS_COMMUNS = [
 
 
 # ------------------------------------------------------------
-# Fonctions d'anonymisation
+# Fonctions d'anonymisation (texte)
 # ------------------------------------------------------------
 def anonymize_text(text: str, labels_to_remove):
     anonymized = text
@@ -166,21 +166,31 @@ def anonymize_txt(txt_bytes: bytes, labels_to_remove):
     return anonymized_text.encode("utf-8"), replacements
 
 
+# ------------------------------------------------------------
+# Fonctions d'anonymisation (images)
+# ------------------------------------------------------------
 def anonymize_image(image_bytes: bytes, labels_to_remove, use_ocr: bool = True):
+    # Chargement initial
     image = Image.open(BytesIO(image_bytes))
 
-    if image.mode != "RGB":
+    # Normalisation du mode et du format pour pytesseract
+    if image.mode not in ("RGB", "L"):
         image = image.convert("RGB")
+
+    # On force un format supporté pour éviter "Unsupported image format/type"
+    image.format = "PNG"
 
     anonymized_image = image.copy()
     draw = ImageDraw.Draw(anonymized_image)
     all_replacements = []
 
-    # OCR pour détecter et masquer le texte
+    # OCR
     if use_ocr:
         try:
             ocr_data = pytesseract.image_to_data(
-                image, lang="fra+eng", output_type=pytesseract.Output.DICT
+                anonymized_image,
+                lang="fra+eng",
+                output_type=pytesseract.Output.DICT
             )
 
             n_boxes = len(ocr_data["text"])
@@ -203,19 +213,15 @@ def anonymize_image(image_bytes: bytes, labels_to_remove, use_ocr: bool = True):
                 if re.match(PATTERNS["dates"], text):
                     should_anonymize = True
                     replacement_type = "Date"
-
                 elif re.match(PATTERNS["numeros_longs"], text):
                     should_anonymize = True
                     replacement_type = "Numero"
-
                 elif re.match(PATTERNS["email"], text):
                     should_anonymize = True
                     replacement_type = "Email"
-
                 elif re.match(PATTERNS["telephone"], text):
                     should_anonymize = True
                     replacement_type = "Telephone"
-
                 else:
                     for label in labels_to_remove:
                         if label.lower() in text.lower():
@@ -241,9 +247,9 @@ def anonymize_image(image_bytes: bytes, labels_to_remove, use_ocr: bool = True):
         except Exception as e:
             st.warning(f"OCR non disponible ou erreur: {str(e)}. Anonymisation manuelle appliquee.")
 
-    # Détection simple de zones textuelles / en-têtes via OpenCV (optionnel)
+    # Détection simple de zones textuelles / en-têtes via OpenCV
     try:
-        img_array = np.array(image)
+        img_array = np.array(anonymized_image)
         gray = cv2.cvtColor(img_array, cv2.COLOR_RGB2GRAY)
 
         thresh = cv2.adaptiveThreshold(
@@ -261,11 +267,11 @@ def anonymize_image(image_bytes: bytes, labels_to_remove, use_ocr: bool = True):
         for contour in contours:
             x, y, w, h = cv2.boundingRect(contour)
 
-            if 20 < w < image.width * 0.8 and 10 < h < 100:
+            if 20 < w < anonymized_image.width * 0.8 and 10 < h < 100:
                 roi = gray[y:y + h, x:x + w]
                 white_pixel_ratio = float(np.sum(roi > 200)) / float(w * h)
 
-                if 0.3 < white_pixel_ratio < 0.95 and y < image.height * 0.3:
+                if 0.3 < white_pixel_ratio < 0.95 and y < anonymized_image.height * 0.3:
                     draw.rectangle([x, y, x + w, y + h], fill="black")
                     all_replacements.append(
                         ("Zone detectee", f"Position ({x},{y})", "[MASQUE]")
@@ -274,8 +280,9 @@ def anonymize_image(image_bytes: bytes, labels_to_remove, use_ocr: bool = True):
     except Exception as e:
         st.warning(f"Detection automatique de zones limitee: {str(e)}")
 
+    # Sauvegarde de l'image anonymisée
     output_buffer = BytesIO()
-    img_format = image.format if image.format else "PNG"
+    img_format = anonymized_image.format if anonymized_image.format else "PNG"
     anonymized_image.save(output_buffer, format=img_format)
     output_buffer.seek(0)
 
