@@ -1,6 +1,5 @@
 streamlit
 spacy
-https://www.google.com/search?q=https://github.com/explosion/spacy-models/releases/download/fr_core_news_lg-3.7.0/fr_core_news_lg-3.7.0.tar.gz
 pytesseract
 pdf2image
 Pillow
